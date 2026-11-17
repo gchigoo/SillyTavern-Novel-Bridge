@@ -1,0 +1,12 @@
+{
+  "display_name": "长篇小说记忆",
+  "loading_order": 100,
+  "requires": [],
+  "optional": [],
+  "js": "index.js",
+  "css": "style.css",
+  "author": "gchigoo",
+  "version": "0.1.0",
+  "homePage": "https://github.com/gchigoo/SillyTavern-Novel-Bridge",
+  "generate_interceptor": "novelBridgeInterceptor"
+}

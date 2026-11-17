@@ -1,0 +1,13 @@
+#novel_bridge_drawer .nb-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+#novel_bridge_drawer .nb-actions{display:flex;flex-wrap:wrap;gap:6px;margin:10px 0}
+#novel_bridge_drawer label{display:block;margin:8px 0 3px}
+#novel_bridge_drawer textarea,#novel_bridge_drawer input:not([type=checkbox]),#novel_bridge_drawer select{width:100%;box-sizing:border-box}
+#novel_bridge_drawer textarea{resize:vertical;min-height:65px}
+#novel_bridge_drawer .nb-draft{min-height:220px}
+#novel_bridge_drawer .nb-status{white-space:pre-wrap;overflow-wrap:anywhere;padding:8px 0}
+#novel_bridge_drawer .nb-error{color:#ff9a92}
+#novel_bridge_drawer pre{white-space:pre-wrap;overflow-wrap:anywhere;max-height:400px;overflow:auto;font-size:.85em}
+#novel_bridge_drawer .nb-jobs>div{border-bottom:1px solid #8885;padding:6px 0;overflow-wrap:anywhere}
+#novel_bridge_drawer button:disabled{opacity:.5;cursor:wait}
+#novel_bridge_drawer .nb-help{font-size:.85em;opacity:.8}
+@media(max-width:600px){#novel_bridge_drawer .nb-grid{grid-template-columns:1fr}#novel_bridge_drawer .nb-actions button{flex:1 1 42%}}
