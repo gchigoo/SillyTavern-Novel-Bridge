@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { setTimeout as delay } from 'node:timers/promises';
 import { ChatMemory, bodyHash, bodyOf, verifyChatCheckpoint } from '../../chat-memory.js';
+import { buildRecallQuery } from '../../helpers.mjs';
 
 function fixture() {
   const events = new Map(), calls = [], states = new Map();
@@ -38,6 +39,36 @@ function fixture() {
   const dispose = () => { clearTimeout(memory.timer); clearTimeout(memory.finishTimer); };
   return { c, memory, calls, emit, flush, state, user, assistant, dispose, setHook: fn => { hook = fn; }, ignoreMetadataSave: value => { ignoreMetadataSave = value; }, prompt: () => prompt, status: () => message, saves: () => saves };
 }
+
+test('chapter-length history yields focused search cues and never changes original messages', () => {
+  const scene = '第一章：白塔。' + '城中风云与人物交锋。'.repeat(600) + '最后发现钥匙在账房。<SUOT>1. 假设去海上\n2. 假设全书完结</SUOT>';
+  const messages = [{ role: 'assistant', content: scene }, { role: 'user', content: '继续下一章，调查钥匙的来历。' }];
+  const query = buildRecallQuery(messages);
+  assert.match(query, /^当前续写要求：继续下一章/);
+  assert.match(query, /第一章：白塔/);
+  assert.match(query, /最后发现钥匙在账房/);
+  assert.ok(!query.includes('假设全书完结'));
+  assert.ok(query.length < 1400);
+  assert.equal(messages[0].content, scene);
+});
+
+test('normal, regenerate and continue all prepare recall successfully after a full Chinese chapter', async () => {
+  for (const mode of ['normal', 'regenerate', 'continue']) {
+    const f = fixture();
+    try {
+      const chapter = f.assistant('上一章的完整正文。'.repeat(500) + '人物发现一把钥匙。');
+      f.c.chat = [f.user('开始小说'), chapter, ...(mode === 'continue' ? [] : [f.user('继续下一章')])];
+      await f.memory.toggle(true);
+      f.memory.start(mode, {}, false);
+      await f.memory.intercept([], 32000, () => assert.fail('generation blocked'), mode);
+      const call = f.calls.filter(x => x.path.endsWith('/context')).at(-1);
+      assert.ok(call.body.query.length < 1400);
+      assert.match(call.body.query, /人物发现一把钥匙/);
+      assert.equal(chapter.mes, '上一章的完整正文。'.repeat(500) + '人物发现一把钥匙。');
+      assert.deepEqual(call.body.exclude, mode === 'continue' ? [chapter.novelBridgeMemory.id] : []);
+    } finally { f.dispose(); }
+  }
+});
 
 test('automatic ST lifecycle stores only complete selected replies, then updates edits, swipe and deletion', async () => {
   const f = fixture();

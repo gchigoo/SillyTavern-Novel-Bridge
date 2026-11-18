@@ -30,3 +30,17 @@ export function parseStateDelta(text) {
 export async function draftHash(content) {
   return [...new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(content)))].map(n => n.toString(16).padStart(2, '0')).join('');
 }
+
+// A recall query is a search cue, not a second copy of the chapter. Keep the
+// author's latest request first, then the latest scene; never alter stored text.
+export function buildRecallQuery(messages) {
+  const latestUser = messages.findLast(m => m.role === 'user');
+  const latestScene = messages.findLast(m => m.role === 'assistant');
+  const clip = (text, head, tail) => {
+    const points = Array.from(String(text || '').replace(/\s+/g, ' ').trim());
+    return points.length <= head + tail ? points.join('') : points.slice(0, head).join('') + ' … ' + points.slice(-tail).join('');
+  };
+  const scene = String(latestScene?.content || '').replace(/<(SUOT|think|thinking)\b[^>]*>[\s\S]*?(?:<\/\1\s*>|$)/gi, '').trim();
+  return [latestUser && `当前续写要求：${clip(latestUser.content, 350, 250)}`,
+    scene && `最近正文线索：${clip(scene, 180, 450)}`].filter(Boolean).join('\n') || '当前聊天的人物、地点、事件与未解决的伏笔';
+}

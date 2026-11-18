@@ -1,7 +1,8 @@
 import { z } from 'zod';
 import { randomUUID } from 'node:crypto';
 import { AppError, hash, parse, uuid } from './domain.mjs';
-import { Hindsight, ProviderError, jsonRequest } from './hindsight.mjs';
+import { Hindsight, ProviderError, jsonRequest, recallFailure } from './hindsight.mjs';
+import { compactRecallQuery } from './recall-query.mjs';
 import { Worker } from './worker.mjs';
 import { mkdir, readFile, writeFile, link, unlink } from 'node:fs/promises';
 import path from 'node:path';
@@ -128,7 +129,7 @@ export class ChatHindsight extends Hindsight {
   async recall(id, entries, query) {
     if (!entries.length) return [];
     const r = await jsonRequest(this.path(id, '/memories/recall'), { key: this.key, timeout: this.recallTimeout, method: 'POST', body: {
-      query: query || '当前聊天中的人物、地点、事件和未解决的伏笔', types: ['world', 'experience'], budget: 'low', max_tokens: 2500,
+      query: compactRecallQuery(query || '当前聊天中的人物、地点、事件和未解决的伏笔'), types: ['world', 'experience'], budget: 'low', max_tokens: 2500,
       tags: entries.map(e => chatTag(e.message_id, e.revision)), tags_match: 'any_strict',
     } });
     if (!Array.isArray(r.results)) throw new ProviderError('provider_json');
@@ -142,7 +143,7 @@ export async function chatContext(store, provider, owner, id, input) {
   const indexed = visible.filter(r => r.status === 'synced');
   let facts;
   try { facts = await provider.recall(id, indexed, input.query); }
-  catch { throw new AppError(502, 'RECALL_FAILED', '聊天记忆召回失败，请重试，或关闭自动记忆后生成'); }
+  catch (error) { throw recallFailure(error, true); }
   await store.checkEpoch(owner, id, input.expectedEpoch);
   const byId = new Map(indexed.map(r => [r.message_id, r]));
   const sources = [], seen = new Set(); let remaining = 12000, omitted = false;

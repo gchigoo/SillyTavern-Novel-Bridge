@@ -239,7 +239,10 @@ function install() {
   mount.append(root);
   chatMemory = new ChatMemory({ context: ctx, request: api,
     setPrompt: text => ctx().setExtensionPrompt(PROMPT, text, extension_prompt_types.IN_CHAT, 0, false, extension_prompt_roles.SYSTEM),
-    report: (text, error = false) => { $('autoStatus').textContent = text; $('autoStatus').classList.toggle('nb-error', error); },
+    report: (text, error = false) => {
+      $('autoStatus').textContent = text; $('autoStatus').classList.toggle('nb-error', error);
+      if (error) window.toastr?.error(text, '长篇小说记忆', { preventDuplicates: true, timeOut: 10000, escapeHtml: true });
+    },
     preview: result => { $('autoContext').textContent = [result.contextText || '暂无匹配的历史记忆', ...result.warnings].join('\n'); },
     changed: enabled => { $('autoEnabled').checked = enabled; if (enabled) { config().enabled = false; $('enabled').checked = false; ctx().saveMetadataDebounced(); } },
   });

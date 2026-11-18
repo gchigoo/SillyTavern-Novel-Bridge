@@ -1,4 +1,5 @@
 import http from 'node:http';
+import { recallTokenCount } from '../src/recall-query.mjs';
 
 export async function startMockServices() {
   const state = { operations: new Map(), retains: [], recalls: [], banks: [], analyses: [], deletes: [], facts: [], lostAcknowledgements: 0, operationTransport: false, recallMalformed: false, analysisMalformed: false, onRecall: null };
@@ -32,6 +33,7 @@ export async function startMockServices() {
       return json(202, { operation_id: body.operation_id, status: state.operations.get(body.operation_id).status });
     }
     if (req.method === 'POST' && suffix === '/memories/recall') {
+      if (recallTokenCount(body.query) > 500) return json(400, { detail: 'Query too long: exceeds maximum of 500 tokens' });
       state.recalls.push({ bank, body }); if (state.onRecall) await state.onRecall();
       if (state.recallMalformed) { res.writeHead(200, { 'Content-Type': 'application/json' }); res.end('{broken'); return; }
       return json(200, { results: state.facts });

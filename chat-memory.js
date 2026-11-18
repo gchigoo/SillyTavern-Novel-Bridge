@@ -1,4 +1,4 @@
-import { draftHash } from './helpers.mjs';
+import { draftHash, buildRecallQuery } from './helpers.mjs';
 
 const FIELD = 'novelBridgeMemory';
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -270,7 +270,7 @@ export class ChatMemory {
       this.check(t);
       const last = snapshot.messages.at(-1);
       const exclude = ['swipe', 'continue'].includes(type) && last?.role === 'assistant' ? [last.id] : [];
-      const query = snapshot.messages.slice(-8).map(m => `${m.role} ${m.name}: ${m.content.slice(-3000)}`).join('\n').slice(-8000);
+      const query = buildRecallQuery(snapshot.messages);
       const result = await this.request(`/chats/${t.id}/context`, { expectedEpoch: snapshot.epoch, query, exclude });
       this.check(t); if (snapshot.fingerprint !== this.fingerprint()) throw stale();
       // Memory is auxiliary: leave most of the context to cards, books and ST's chat.

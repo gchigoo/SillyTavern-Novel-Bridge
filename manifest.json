@@ -6,7 +6,7 @@
   "js": "index.js",
   "css": "style.css",
   "author": "gchigoo",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "homePage": "https://github.com/gchigoo/SillyTavern-Novel-Bridge",
   "generate_interceptor": "novelBridgeInterceptor"
 }
