@@ -1,11 +1,13 @@
 ﻿import { extension_prompt_types, extension_prompt_roles } from '/script.js';
 import { RaceGuard, FinalizationIdentity, canReplaceDraft, parseStateDelta, draftHash, reconcileCanon } from './helpers.mjs';
+import { ChatMemory } from './chat-memory.js';
 
 const API = '/novel-bridge/api';
 const PROMPT = 'novel_bridge_memory';
 const ctx = () => SillyTavern.getContext();
 let root, expectedRevision = 0, canonRevision = 0, currentEditorKey = '', currentChat = null, finalizing = false;
 let activeNovel = null;
+let chatMemory;
 let canonLoadSequence = 0;
 let canonSaving = false;
 let canonSaveTask = Promise.resolve();
@@ -191,6 +193,7 @@ async function generate() {
 }
 window.novelBridgeInterceptor = async (_chat, contextSize, abort, type) => {
   clearPrompt();
+  if (chatMemory?.enabled()) return chatMemory.intercept(_chat, contextSize, abort, type);
   if (!root || !config().enabled || !['normal', 'continue', 'regenerate', 'swipe'].includes(type || 'normal')) return;
   const ticket = guard.begin('interceptor');
   try {
@@ -216,7 +219,12 @@ function install() {
   const mount = document.querySelector('#extensions_settings2'); if (!mount) return;
   root = document.createElement('div'); root.id = 'novel_bridge_drawer'; root.className = 'extension_container';
   root.innerHTML = `<div class="inline-drawer"><div class="inline-drawer-toggle inline-drawer-header"><b>长篇小说记忆</b><div class="inline-drawer-icon fa-solid fa-circle-chevron-down down"></div></div><div class="inline-drawer-content">
-    <label><input type="checkbox" data-nb="enabled"> 当前聊天启用小说记忆</label>
+    <section data-nb="autoPanel"><label><input type="checkbox" data-nb="autoEnabled"> 当前聊天启用自动记忆</label>
+    <div class="nb-help">照常使用 ST 发送、重生成和续写。生成前自动召回，完整回复后自动保存；编辑、切换回复和删除会同步修订。角色卡、世界书与写作模型仍由 ST 管理。启用时会同步当前聊天已有消息。</div>
+    <div class="nb-actions"><button class="menu_button" data-nb="autoRefresh">同步并查看状态</button><button class="menu_button" data-nb="autoRetry">重试失败任务</button></div>
+    <div class="nb-status" role="status" data-nb="autoStatus"></div><details><summary>本次召回与来源</summary><pre data-nb="autoContext"></pre></details></section>
+    <details><summary>手动章节工作台（可选）</summary>
+    <label><input type="checkbox" data-nb="enabled"> 启用手动章节记忆（与自动模式互斥）</label>
     <label>小说<select data-nb="novel"></select></label><div class="nb-actions"><button class="menu_button" data-nb="create">新建小说</button><button class="menu_button" data-nb="refresh">刷新</button></div>
     <div class="nb-grid"><label>章节编号<input type="number" min="1" max="100000" data-nb="chapter" value="1"></label><label>章节标题<input maxlength="200" data-nb="title"></label></div>
     <label>本章大纲<textarea maxlength="8000" data-nb="outline"></textarea></label><label>故事时间（原文标签）<input maxlength="200" data-nb="storyTime"></label>
@@ -227,8 +235,16 @@ function install() {
     <details><summary>作者设定</summary><textarea maxlength="15000" data-nb="canon" readonly></textarea><button class="menu_button" data-nb="saveCanon">保存作者设定</button><button class="menu_button" data-nb="loadCanon">载入服务器设定</button><div class="nb-help">修改设定后，已有定稿章节需逐章复核。载入服务器设定会在确认后替换本地草稿。</div></details>
     <details><summary>上下文与来源</summary><pre data-nb="context"></pre><pre data-nb="sources"></pre></details>
     <details><summary>记忆同步任务</summary><button class="menu_button" data-nb="jobsRefresh">刷新任务</button><div class="nb-jobs" data-nb="jobs"></div></details>
-  </div></div>`;
+  </details></div></div>`;
   mount.append(root);
+  chatMemory = new ChatMemory({ context: ctx, request: api,
+    setPrompt: text => ctx().setExtensionPrompt(PROMPT, text, extension_prompt_types.IN_CHAT, 0, false, extension_prompt_roles.SYSTEM),
+    report: (text, error = false) => { $('autoStatus').textContent = text; $('autoStatus').classList.toggle('nb-error', error); },
+    preview: result => { $('autoContext').textContent = [result.contextText || '暂无匹配的历史记忆', ...result.warnings].join('\n'); },
+    changed: enabled => { $('autoEnabled').checked = enabled; if (enabled) { config().enabled = false; $('enabled').checked = false; ctx().saveMetadataDebounced(); } },
+  });
+  $('autoEnabled').addEventListener('change', () => chatMemory.toggle($('autoEnabled').checked).catch(e => chatMemory.report(e.message, true)));
+  for (const [name, retry] of [['autoRefresh', false], ['autoRetry', true]]) $(name).addEventListener('click', async () => { $(name).disabled = true; try { await chatMemory.refresh(retry); } catch (e) { chatMemory.report(e.message, true); } finally { $(name).disabled = false; } });
   const bind = (name, action) => $(name).addEventListener('click', async () => { const ticket = guard.begin(`button:${name}`); $(name).disabled = true; try { await action(); } catch (error) { if (guard.valid(ticket)) fail(error); } finally { $(name).disabled = false; } });
   bind('recall', recall); bind('generate', generate); bind('analyze', analyze); bind('finalize', finalize); bind('load', loadChapter); bind('refresh', refreshNovels); bind('jobsRefresh', refreshJobs);
   bind('create', async () => {
@@ -269,12 +285,14 @@ function install() {
       delete config().canonEditors[s.novelId]; ctx().saveMetadataDebounced(); status('已载入服务器设定，可以合并改动后保存');
     } finally { if (editorLoad === canonLoadSequence) $('canon').readOnly = canonSaving || !activeNovel; }
   });
-  $('enabled').addEventListener('change', async () => { config().enabled = $('enabled').checked; guard.invalidate(); clearPrompt(); ctx().saveMetadataDebounced(); const ticket = guard.begin('lifecycle'); try { await loadNovel(); } catch (error) { if (guard.valid(ticket)) fail(error); } });
+  $('enabled').addEventListener('change', async () => { config().enabled = $('enabled').checked; if (config().enabled) await chatMemory.toggle(false); guard.invalidate(); clearPrompt(); ctx().saveMetadataDebounced(); const ticket = guard.begin('lifecycle'); try { await loadNovel(); } catch (error) { if (guard.valid(ticket)) fail(error); } });
   $('novel').addEventListener('change', async () => { persistEditor(); config().novelId = $('novel').value; guard.invalidate(); clearPrompt(); renderEditor(); ctx().saveMetadataDebounced(); const ticket = guard.begin('lifecycle'); try { await loadNovel(); } catch (error) { if (guard.valid(ticket)) fail(error); } });
   $('chapter').addEventListener('change', async () => { const number = Number($('chapter').value); if (!Number.isInteger(number) || number < 1 || number > 100000) { $('chapter').value = config().chapterNumber; return; } persistEditor(); config().chapterNumber = number; guard.invalidate(); clearPrompt(); renderEditor(); ctx().saveMetadataDebounced(); const ticket = guard.begin('lifecycle'); try { await loadNovel(); } catch (error) { if (guard.valid(ticket)) fail(error); } });
   for (const name of fieldNames) $(name).addEventListener('input', () => { if (name === 'outline') clearPrompt(); persistEditor(); });
   $('canon').addEventListener('input', () => { const id = selection().novelId; if (id && activeNovel) { config().canonEditors[id] = { canon: $('canon').value, expectedRevision: canonRevision }; ctx().saveMetadataDebounced(); } });
   ctx().eventSource.on(ctx().eventTypes.CHAT_CHANGED, chatChanged);
+  chatMemory.installEvents();
   chatChanged();
+  chatMemory.chatChanged();
 }
 if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', install, { once: true }); else install();

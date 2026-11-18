@@ -1,13 +1,13 @@
 {
   "name": "novel-bridge",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "type": "module",
   "engines": { "node": ">=24" },
   "scripts": {
     "start": "node src/server.mjs",
-    "test": "node --test test/domain.test.mjs test/ui.test.mjs",
-    "test:integration": "node --test test/integration.test.mjs"
+    "test": "node --test test/domain.test.mjs test/ui.test.mjs test/chat-ui.test.mjs",
+    "test:integration": "node --test --test-concurrency=1 test/integration.test.mjs test/chat-integration.test.mjs"
   },
   "dependencies": { "express": "^5.1.0", "pg": "^8.16.3", "zod": "^4.1.12" }
 }

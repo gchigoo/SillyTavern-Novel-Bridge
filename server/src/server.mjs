@@ -5,8 +5,9 @@ import { AppError, parse, schemas, uuid, chapterNumber, markdown } from './domai
 import { Store } from './store.mjs';
 import { Hindsight, Analyzer, contextFor } from './hindsight.mjs';
 import { Worker } from './worker.mjs';
+import { ChatStore, ChatHindsight, ChatWorker, mountChatRoutes } from './chat-memory.mjs';
 
-export function createApp({ store, hindsight, analyzer, gatewaySecret, publicOrigin }) {
+export function createApp({ store, hindsight, analyzer, chatHindsight = new ChatHindsight(hindsight), gatewaySecret, publicOrigin }) {
   if (!gatewaySecret || gatewaySecret.length < 24 || !publicOrigin) throw new Error('Missing required gateway configuration');
   const app = express(); app.disable('x-powered-by');
   app.get('/healthz', async (_req, res) => { try { await store.pool.query('SELECT 1'); res.json({ status: 'ok' }); } catch { res.status(503).json({ status: 'unavailable' }); } });
@@ -22,6 +23,7 @@ export function createApp({ store, hindsight, analyzer, gatewaySecret, publicOri
   });
   app.use('/novel-bridge/api', express.json({ limit: '2mb' }));
   const router = express.Router();
+  mountChatRoutes(router, new ChatStore(store), chatHindsight);
   router.param('id', (req, _res, next, value) => { req.novelId = parse(uuid, value); next(); });
   router.param('number', (req, _res, next, value) => { if (!/^[1-9]\d*$/.test(value)) throw new AppError(400, 'INVALID_INPUT', '无效章节编号'); req.chapterNumber = parse(chapterNumber, Number(value)); next(); });
   router.get('/novels', async (req, res) => res.json({ novels: await store.list(req.owner) }));
@@ -66,9 +68,10 @@ export async function start(env = process.env) {
   const analyzer = new Analyzer({ url: env.CPA_BASE_URL, key: env.CPA_API_KEY, model: env.CPA_MODEL || 'gpt-5.6-luna', timeout: Number(env.ANALYSIS_TIMEOUT_MS || 300000) });
   const app = createApp({ store, hindsight, analyzer, gatewaySecret: env.GATEWAY_SECRET, publicOrigin: env.PUBLIC_ORIGIN });
   const worker = new Worker(store, hindsight, { exportRoot: env.EXPORT_ROOT });
-  const server = app.listen(Number(env.PORT || 3100), '0.0.0.0', () => worker.start());
+  const chatWorker = new ChatWorker(new ChatStore(store), new ChatHindsight(hindsight), { exportRoot: env.EXPORT_ROOT });
+  const server = app.listen(Number(env.PORT || 3100), '0.0.0.0', () => { worker.start(); chatWorker.start(); });
   let stopping = false;
-  const stop = async () => { if (stopping) return; stopping = true; server.close(); await worker.stop(); await store.close(); };
+  const stop = async () => { if (stopping) return; stopping = true; server.close(); await Promise.all([worker.stop(), chatWorker.stop()]); await store.close(); };
   process.once('SIGTERM', stop); process.once('SIGINT', stop);
   return { app, store, worker, server, stop };
 }

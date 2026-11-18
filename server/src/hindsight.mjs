@@ -3,7 +3,7 @@ import { AppError, bankId, revisionTag, parse, schemas, hash, buildContext, visi
 export class ProviderError extends Error {
   constructor(category) { super(category); this.category = category; }
 }
-async function jsonRequest(url, { key, timeout, method = 'GET', body, allowNotFound = false }) {
+export async function jsonRequest(url, { key, timeout, method = 'GET', body, allowNotFound = false }) {
   let response;
   try {
     response = await fetch(url, { method, signal: AbortSignal.timeout(timeout), headers: { Authorization: `Bearer ${key}`, ...(body ? { 'Content-Type': 'application/json' } : {}) }, ...(body ? { body: JSON.stringify(body) } : {}) });
